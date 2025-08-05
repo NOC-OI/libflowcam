@@ -146,6 +146,12 @@ class ROIReader:
                     if verbose:
                         print("Skipped " + str(int((c_etime - last_etime) * 1000)) + "ms (~" + str(offset_frames) + " frames) at ROI " + str(idx) + ", assuming recalibration")
                     calibration_frames += 1
+                    #if offset_frames > calibration_offset_frames:
+                        #offset_frames = calibration_offset_frames
+                else:
+                    if offset_frames > 1:
+                        if verbose:
+                            print("Skipped " + str(int((c_etime - last_etime) * 1000)) + "ms (~" + str(offset_frames) + " frames) at ROI " + str(idx))
                 cframe = cframe + offset_frames
                 last_etime = c_etime
             csv_row["rawfile_index"] = cframe - calibration_frames
