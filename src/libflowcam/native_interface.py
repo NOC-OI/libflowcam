@@ -29,6 +29,7 @@ import re
 import csv
 import glob
 import struct
+from datetime import datetime
 import json
 from PIL import Image, ImageDraw
 import numpy as np
@@ -111,25 +112,63 @@ class ROIReader:
             csv_fp.close()
 
 
-        frame_rate = 7.0
+        self.frame_rate = 7.0 # Default value
+        self.serial_number = None
 
         with open(sample_summary_file, "r", encoding="iso-8859-1") as sf_fp:
             for line in sf_fp:
-                if "frame rate" in line.lower():
-                    fridx = line.lower().index("frame rate")
-                    frn = re.sub("[^\d\.]", "", line[fridx + 11:])
-                    frame_rate = float(frn)
-                    break
+                linelow = line.lower()
+                if "frame rate," in linelow:
+                    fridx = linelow.index("frame rate,")
+                    self.frame_rate = float(re.sub("[^\\d\\.]", "", line[fridx + 11:]))
+                elif "serialno," in linelow:
+                    matchidx = linelow.index("serialno,")
+                    self.serial_number = int(re.sub("[^\\d\\.]", "", line[matchidx + 9:]))
+                elif "magnification," in linelow:
+                    matchidx = linelow.index("magnification,")
+                    self.magnification = int(re.sub("[^\\d\\.]", "", line[matchidx + 14:]))
+                elif "efficiency," in linelow:
+                    matchidx = linelow.index("efficiency,")
+                    self.efficiency = float(re.sub("[^\\d\\.]", "", line[matchidx + 11:])) / 100.0 # We report as a 0-1 value in the library
+                elif "sample volume aspirated," in linelow:
+                    matchidx = linelow.index("sample volume aspirated,")
+                    self.volume_aspirated = float(re.sub("[^\\d\\.]", "", line[matchidx + 24:])) # ml
+                elif "sample volume processed," in linelow:
+                    matchidx = linelow.index("sample volume processed,")
+                    self.volume_processed = float(re.sub("[^\\d\\.]", "", line[matchidx + 24:])) # ml
+                elif "fluid volume imaged," in linelow:
+                    matchidx = linelow.index("fluid volume imaged,")
+                    self.volume_imaged = float(re.sub("[^\\d\\.]", "", line[matchidx + 20:])) # ml
+                elif "start time," in linelow:
+                    matchidx = linelow.index("start time,")
+                    match = re.search("[\\d]+-[\\d]+-[\\d]+\\ [\\d]+:[\\d]+:[\\d]+", line[matchidx + 11:])
+                    matchval = match.group(0)
+                    self.start_time = datetime.strptime(matchval, "%Y-%m-%d %H:%M:%S")
+                elif "end time," in linelow:
+                    matchidx = linelow.index("end time,")
+                    match = re.search("[\\d]+-[\\d]+-[\\d]+\\ [\\d]+:[\\d]+:[\\d]+", line[matchidx + 9:])
+                    matchval = match.group(0)
+                    self.end_time = datetime.strptime(matchval, "%Y-%m-%d %H:%M:%S")
+
 
         if verbose:
-            print("Average frame rate = " + str(frame_rate) + " fps")
+            print("Average frame rate = " + str(self.frame_rate) + "fps")
+            print("Serial number = " + str(self.serial_number))
+            print("Magnification = " + str(self.magnification))
+            print("Volume aspirated = " + str(self.volume_aspirated) + "mL")
+            print("Volume processed = " + str(self.volume_processed) + "mL")
+            print("Volume imaged = " + str(self.volume_imaged) + "mL")
+            print("Efficiency = " + str(self.efficiency * 100) + "%")
+            print("Start time = " + self.start_time.strftime("%a, %-d %b %Y %H:%M:%S"))
+            print("End time = " + self.end_time.strftime("%a, %-d %b %Y %H:%M:%S"))
+
 
         # ['name', 'area_abd_m', 'area_filled_m', 'aspect_ratio', 'average_blue', 'average_green', 'average_red', 'biovolume_cylinder_m', 'biovolume_p_spheroid_m', 'biovolume_sphere_m', 'calibration_factor', 'calibration_image', 'capture_id', 'capture_x_px', 'capture_y_px', 'ch1_area', 'ch1_peak', 'ch1_width', 'ch2_area', 'ch2_peak', 'ch2_width', 'ch2_or_ch1_ratio', 'circle_fit', 'circularity', 'circularity_hu', 'compactness', 'convex_perimeter_m', 'convexity', 'date', 'diameter_abd_m', 'diameter_esd_m', 'diameter_fd_m', 'edge_gradient', 'elapsed_time_s', 'elongation', 'feret_angle_max', 'feret_angle_min', 'fiber_curl', 'fiber_straightness', 'filter_score', 'geodesic_aspect_ratio', 'geodesic_length_m', 'geodesic_thickness_m', 'group_id', 'image_height_px', 'image_width_px', 'intensity', 'length_m', 'particles_per_chain', 'perimeter_m', 'ratio_blue_or_green', 'ratio_red_or_blue', 'ratio_red_or_green', 'roughness', 'sigma_intensity', 'source_image', 'sphere_complement_m', 'sphere_count', 'sphere_unknown_m', 'sphere_volume_m', 'sqrt_circularity', 'sum_intensity', 'symmetry', 'time', 'timestamp', 'transparency', 'uuid', 'volume_abd_m', 'volume_esd_m', 'width_m']
 
         si_offset = int(self.csv_data[0]["source_image"])
         last_etime = float(self.csv_data[0]["elapsed_time_s"])
         calibration_frames = 1
-        calibration_offset_frames = round(last_etime * frame_rate)
+        calibration_offset_frames = round(last_etime * self.frame_rate)
         cframe = calibration_offset_frames
 
         if verbose:
@@ -141,7 +180,7 @@ class ROIReader:
         for csv_row in self.csv_data:
             c_etime = float(csv_row["elapsed_time_s"])
             if c_etime > (last_etime + 0.001):
-                offset_frames = round((c_etime - last_etime) * frame_rate)
+                offset_frames = round((c_etime - last_etime) * self.frame_rate)
                 if offset_frames > (calibration_offset_frames - 2): # Whenever we have a large skip, it's usually a calibration event - and this means an extra skipped frame!
                     if verbose:
                         print("Skipped " + str(int((c_etime - last_etime) * 1000)) + "ms (~" + str(offset_frames) + " frames) at ROI " + str(idx) + ", assuming recalibration")
@@ -167,7 +206,7 @@ class ROIReader:
             if verbose:
                 print("As calibration event count matches image count we likely have good synchronisation, continuing")
         else:
-            raise IndexError("Could not establish stable frame timings! - This is likely an issue with your data")
+            raise IndexError("Could not establish stable frame timings! - This is likely an issue with your data. Consider sending a copy to the developer of libflowcam and raising an issue on GitHub.")
 
         self.__fp_dict = {}
 

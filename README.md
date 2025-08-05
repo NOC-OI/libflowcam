@@ -17,3 +17,6 @@ print(str(len(sample2.rois)) + " ROIs") # Should be 137015 ROIs
 for roi_index in [10, 100, 1000, 10000, 100000]:
     sample2.rois[roi_index].image.save("testout/flowcam_polina_pontoon_0707_r1_" + str(roi_index) + ".png")
 ```
+
+## Note
+This library has been built with no internal knowledge of the FlowCam software, and the data output format was reverse engineered soley from output data. It would therefore be highly appreciated if users could contribute data that breaks the library in order to better accomodate for all use cases.
