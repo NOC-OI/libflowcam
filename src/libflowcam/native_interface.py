@@ -29,6 +29,7 @@ import re
 import csv
 import glob
 import struct
+import hashlib
 from datetime import datetime
 import json
 from PIL import Image, ImageDraw
@@ -37,7 +38,7 @@ from .utils import to_snake_case
 
 
 class ROI:
-    def __init__(self, roi_reader, fp_dict, src_img, w, h, x, y, index):
+    def __init__(self, roi_reader, fp_dict, src_img, w, h, x, y, index, raw_props, udt, small_udt):
         self.__fp_dict = fp_dict
         self.__roi_reader = roi_reader
         self.__src_img = src_img
@@ -46,6 +47,9 @@ class ROI:
         self.width = w
         self.height = h
         self.index = index
+        self.raw_props = raw_props
+        self.udt = udt
+        self.small_udt = small_udt
 
     def __get_image(self):
         self.__roi_reader._aidx += 1
@@ -84,9 +88,40 @@ class ROI:
         )
 
 class ROIReader:
+    def flowcam_id_to_udt(self, serial_number, timestamp, roi_index = None):
+        udt = "udt__usa_fluid_imaging_laboratories__flow_cam__" + str(serial_number) + "__" + str(int(timestamp))
+        if roi_index is not None:
+            udt = udt + "__" + str(roi_index)
+        return udt
+
+    def small_udt(self, big_udt):
+        if big_udt.startswith("udt__"):
+            udt_cmps = big_udt[5:].split("__")
+            vendor = udt_cmps[0]
+            device = udt_cmps[1]
+            vdp = hashlib.sha256((vendor + "__" + device).encode("utf-8")).hexdigest()[0:12]
+            device_id = udt_cmps[2].lower()
+            did = hashlib.sha256((device_id).encode("utf-8")).hexdigest()[0:16]
+            timestamp = int(udt_cmps[3])
+            ts = '{:012x}'.format(timestamp)
+            small_udt = "udt_" + vdp + "_" + did + "_" + ts
+            if len(udt_cmps) > 4:
+                imid = udt_cmps[4]
+                small_udt = small_udt + "_" + hashlib.sha256((imid).encode("utf-8")).hexdigest()[0:16]
+            return small_udt
+        else:
+            return big_udt
+
     def __to_snake_case_flowcam_preprocess(self, str_in):
         # We might want to do something special in future if a new revision messes up column names
         return to_snake_case(str_in)
+
+    def roi_from_udt(self, udt):
+        small_udt = self.small_udt(udt) # Automatically shrink for quicker searching
+        try:
+            return self.udt_lookup[small_udt]
+        except KeyError:
+            return None
 
     def __init__(self, csv_fp, verbose = False):
         self.__close_csv = False
@@ -211,11 +246,16 @@ class ROIReader:
         self.__fp_dict = {}
 
         self.rois = []
+        self.udt_lookup = {}
         roi_index = 1
+        start_time_ts = self.start_time.timestamp()
         for csv_row in self.csv_data:
             if int(csv_row["image_width_px"].split(".")[0]) != 0:
                 source_image_index = csv_row["rawfile_index"]
                 source_image = sample_dir + "rawfile_" + str(source_image_index).zfill(6) + ".tif"
-                roi_def = ROI(self, self.__fp_dict, source_image, int(csv_row["image_width_px"].split(".")[0]), int(csv_row["image_height_px"].split(".")[0]), int(csv_row["capture_x_px"].split(".")[0]), int(csv_row["capture_y_px"].split(".")[0]), roi_index)
+                udt = self.flowcam_id_to_udt(self.serial_number, start_time_ts, roi_index)
+                small_udt = self.small_udt(udt)
+                roi_def = ROI(self, self.__fp_dict, source_image, int(csv_row["image_width_px"].split(".")[0]), int(csv_row["image_height_px"].split(".")[0]), int(csv_row["capture_x_px"].split(".")[0]), int(csv_row["capture_y_px"].split(".")[0]), roi_index, csv_row, udt, small_udt)
                 self.rois.append(roi_def)
+                self.udt_lookup[small_udt] = roi_def
             roi_index += 1

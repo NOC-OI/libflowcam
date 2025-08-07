@@ -8,3 +8,5 @@ sorted_rois = sorted(sample.rois, key=lambda x: x.width * x.height, reverse = Tr
 
 for roi in sorted_rois[:32]: # Gives back the 30 biggest plankton
     roi.image.save("testout/flowcam_polina_pontoon_1807_r1_" + str(roi.index) + ".png")
+
+print(sample.roi_from_udt("udt_c691abd6787d_5208ac35cc63a8d7_00006880e2de_0f4121d0ef1df4c8").index) # Should match 216
