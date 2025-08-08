@@ -29,6 +29,7 @@ import re
 import csv
 import glob
 import struct
+import pytz
 import hashlib
 from datetime import datetime
 import json
@@ -94,7 +95,7 @@ class ROIReader:
             udt = udt + "__" + str(roi_index)
         return udt
 
-    def small_udt(self, big_udt):
+    def convert_to_small_udt(self, big_udt):
         if big_udt.startswith("udt__"):
             udt_cmps = big_udt[5:].split("__")
             vendor = udt_cmps[0]
@@ -117,7 +118,7 @@ class ROIReader:
         return to_snake_case(str_in)
 
     def roi_from_udt(self, udt):
-        small_udt = self.small_udt(udt) # Automatically shrink for quicker searching
+        small_udt = self.convert_to_small_udt(udt) # Automatically shrink for quicker searching
         try:
             return self.udt_lookup[small_udt]
         except KeyError:
@@ -132,6 +133,7 @@ class ROIReader:
         sample_path = csv_fp.name
         sample_dir = sample_path[:-len(os.path.basename(sample_path))]
         sample_summary_file = sample_path[:-4] + "_summary.csv"
+        self.summary_file = sample_summary_file
 
         if verbose:
             print("Sample directory = " + sample_dir)
@@ -178,12 +180,12 @@ class ROIReader:
                     matchidx = linelow.index("start time,")
                     match = re.search("[\\d]+-[\\d]+-[\\d]+\\ [\\d]+:[\\d]+:[\\d]+", line[matchidx + 11:])
                     matchval = match.group(0)
-                    self.start_time = datetime.strptime(matchval, "%Y-%m-%d %H:%M:%S")
+                    self.start_time = datetime.strptime(matchval, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC)
                 elif "end time," in linelow:
                     matchidx = linelow.index("end time,")
                     match = re.search("[\\d]+-[\\d]+-[\\d]+\\ [\\d]+:[\\d]+:[\\d]+", line[matchidx + 9:])
                     matchval = match.group(0)
-                    self.end_time = datetime.strptime(matchval, "%Y-%m-%d %H:%M:%S")
+                    self.end_time = datetime.strptime(matchval, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC)
 
 
         if verbose:
@@ -194,8 +196,8 @@ class ROIReader:
             print("Volume processed = " + str(self.volume_processed) + "mL")
             print("Volume imaged = " + str(self.volume_imaged) + "mL")
             print("Efficiency = " + str(self.efficiency * 100) + "%")
-            print("Start time = " + self.start_time.strftime("%a, %-d %b %Y %H:%M:%S"))
-            print("End time = " + self.end_time.strftime("%a, %-d %b %Y %H:%M:%S"))
+            print("Start time = " + self.start_time.strftime("%a, %-d %b %Y %H:%M:%S %Z"))
+            print("End time = " + self.end_time.strftime("%a, %-d %b %Y %H:%M:%S %Z"))
 
 
         # ['name', 'area_abd_m', 'area_filled_m', 'aspect_ratio', 'average_blue', 'average_green', 'average_red', 'biovolume_cylinder_m', 'biovolume_p_spheroid_m', 'biovolume_sphere_m', 'calibration_factor', 'calibration_image', 'capture_id', 'capture_x_px', 'capture_y_px', 'ch1_area', 'ch1_peak', 'ch1_width', 'ch2_area', 'ch2_peak', 'ch2_width', 'ch2_or_ch1_ratio', 'circle_fit', 'circularity', 'circularity_hu', 'compactness', 'convex_perimeter_m', 'convexity', 'date', 'diameter_abd_m', 'diameter_esd_m', 'diameter_fd_m', 'edge_gradient', 'elapsed_time_s', 'elongation', 'feret_angle_max', 'feret_angle_min', 'fiber_curl', 'fiber_straightness', 'filter_score', 'geodesic_aspect_ratio', 'geodesic_length_m', 'geodesic_thickness_m', 'group_id', 'image_height_px', 'image_width_px', 'intensity', 'length_m', 'particles_per_chain', 'perimeter_m', 'ratio_blue_or_green', 'ratio_red_or_blue', 'ratio_red_or_green', 'roughness', 'sigma_intensity', 'source_image', 'sphere_complement_m', 'sphere_count', 'sphere_unknown_m', 'sphere_volume_m', 'sqrt_circularity', 'sum_intensity', 'symmetry', 'time', 'timestamp', 'transparency', 'uuid', 'volume_abd_m', 'volume_esd_m', 'width_m']
@@ -243,18 +245,25 @@ class ROIReader:
         else:
             raise IndexError("Could not establish stable frame timings! - This is likely an issue with your data. Consider sending a copy to the developer of libflowcam and raising an issue on GitHub.")
 
+        start_time_ts = self.start_time.timestamp()
+        self.udt = self.flowcam_id_to_udt(self.serial_number, start_time_ts)
+        self.small_udt = self.convert_to_small_udt(self.udt)
+
+        if verbose:
+            print("Sample UDT = " + self.udt)
+            print("Compact UDT = " + self.small_udt)
+
         self.__fp_dict = {}
 
         self.rois = []
         self.udt_lookup = {}
         roi_index = 1
-        start_time_ts = self.start_time.timestamp()
         for csv_row in self.csv_data:
             if int(csv_row["image_width_px"].split(".")[0]) != 0:
                 source_image_index = csv_row["rawfile_index"]
                 source_image = sample_dir + "rawfile_" + str(source_image_index).zfill(6) + ".tif"
                 udt = self.flowcam_id_to_udt(self.serial_number, start_time_ts, roi_index)
-                small_udt = self.small_udt(udt)
+                small_udt = self.convert_to_small_udt(udt)
                 roi_def = ROI(self, self.__fp_dict, source_image, int(csv_row["image_width_px"].split(".")[0]), int(csv_row["image_height_px"].split(".")[0]), int(csv_row["capture_x_px"].split(".")[0]), int(csv_row["capture_y_px"].split(".")[0]), roi_index, csv_row, udt, small_udt)
                 self.rois.append(roi_def)
                 self.udt_lookup[small_udt] = roi_def
