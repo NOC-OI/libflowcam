@@ -124,7 +124,7 @@ class ROIReader:
         except KeyError:
             return None
 
-    def __init__(self, csv_fp, verbose = False):
+    def __init__(self, csv_fp, verbose = False, permissive = False, calibration_offset_frames = None):
         self.__close_csv = False
         self._aidx = 0
         if type(csv_fp) == str:
@@ -134,6 +134,7 @@ class ROIReader:
         sample_dir = sample_path[:-len(os.path.basename(sample_path))]
         sample_summary_file = sample_path[:-4] + "_summary.csv"
         self.summary_file = sample_summary_file
+        self.permissive = permissive
 
         if verbose:
             print("Sample directory = " + sample_dir)
@@ -205,8 +206,11 @@ class ROIReader:
         si_offset = int(self.csv_data[0]["source_image"])
         last_etime = float(self.csv_data[0]["elapsed_time_s"])
         calibration_frames = 1
-        calibration_offset_frames = round(last_etime * self.frame_rate)
+        if calibration_offset_frames == None:
+            calibration_offset_frames = round(last_etime * self.frame_rate) # Try autodetect, this is usually around 33
         cframe = calibration_offset_frames
+        cal_images = glob.glob(sample_dir + "cal_image_*.tif")
+        raw_images = glob.glob(sample_dir + "rawfile_*.tif")
 
         if verbose:
             print("Time to first capture = " + str(int(last_etime * 1000)) + "ms")
@@ -233,9 +237,7 @@ class ROIReader:
             csv_row["rawfile_index"] = cframe - calibration_frames
             idx += 1
 
-
-
-        cal_images = glob.glob(sample_dir + "cal_image_*.tif")
+        max_frame_id = cframe - calibration_frames
 
         if verbose:
             print("Detected " + str(calibration_frames) + " calibration events and " + str(len(cal_images)) + " calibration images")
@@ -244,6 +246,18 @@ class ROIReader:
                 print("As calibration event count matches image count we likely have good synchronisation, continuing")
         else:
             raise IndexError("Could not establish stable frame timings! - This is likely an issue with your data. Consider sending a copy to the developer of libflowcam and raising an issue on GitHub.")
+
+        if verbose:
+            print("Detected " + str(max_frame_id) + " frame events and " + str(len(raw_images)) + " frame images")
+        if max_frame_id <= len(raw_images):
+            if verbose:
+                print("As frame event count is less than image count we likely have good synchronisation, continuing")
+        else:
+            if permissive:
+                if verbose:
+                    print("Not enough raw files to match frame events - poor synchronisation, but continuing anyway as instructed!")
+            else:
+                raise IndexError("Could not find enough rawfiles! - This is likely an issue with your data. Consider sending a copy to the developer of libflowcam and raising an issue on GitHub.")
 
         start_time_ts = self.start_time.timestamp()
         self.udt = self.flowcam_id_to_udt(self.serial_number, start_time_ts)
