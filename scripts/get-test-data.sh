@@ -12,7 +12,7 @@ if [ "$SHAOUT" = "41401b12423df4dd8f40b362d4cdb4ebf21718f202324af82d2b9c5b7f1d0c
 else
     echo "Test data hash ($SHAOUT) did not match expected output, redownloading data"
     rm -r flowcam_polina_pontoon_1807_r1
-    wget https://repo.alexbaldwin.dev/open-data/flowcam/2025-07-18/r1.zip
+    wget https://repo.hannahbaldwin.net/open-data/flowcam/2025-07-18/r1.zip
     unzip r1.zip
     rm r1.zip
 fi

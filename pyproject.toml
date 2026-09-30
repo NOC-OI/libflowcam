@@ -2,10 +2,10 @@
 name = "libflowcam"
 dynamic = ["version"]
 authors = [
-  { name="Alex Baldwin", email="contact@alexbaldwin.dev" },
+  { name="Hannah Baldwin", email="contact@hannahbaldwin.net" },
 ]
 license = { text="LGPL-3.0" }
-description = "A Python module for interacting with IFCB data."
+description = "A Python module for interacting with FlowCam data."
 readme = "README.md"
 requires-python = ">=3.6"
 classifiers = [
